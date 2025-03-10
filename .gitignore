@@ -3,8 +3,8 @@
 
 ### Terraform ###
 # Local .terraform directories
-**/amazonQ/.terraform/*
-**/copilot/.terraform/*
+**/amazonQ/.terraform
+**/copilot/.terraform
 
 **/.terraform.lock.hcl
 # .tfstate files
