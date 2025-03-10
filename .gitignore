@@ -4,6 +4,7 @@
 ### Terraform ###
 # Local .terraform directories
 **/.terraform/*
+*.exe
 **/.terraform.lock.hcl
 # .tfstate files
 **/*.tfstate
