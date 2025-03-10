@@ -3,12 +3,13 @@
 
 ### Terraform ###
 # Local .terraform directories
-**/.terraform/*
-*.exe
 **/.terraform.lock.hcl
 # .tfstate files
 **/*.tfstate
 **/*.tfstate.*
+
+amazonQ/.terraform/*
+copilot/.terraform/*
 
 # Crash log files
 **/crash.log
