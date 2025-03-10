@@ -8,8 +8,8 @@
 **/*.tfstate
 **/*.tfstate.*
 
-**/.terraform/*
-**/.terraform/*
+**/.terraform/**
+**/.terraform/**
 
 # Crash log files
 **/crash.log
