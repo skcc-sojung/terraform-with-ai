@@ -21,3 +21,11 @@ resource "aws_subnet" "subnets" {
     Name = "${var.project_prefix}-${each.value.subnet_type}-${substr(each.value.availability_zone, -1, 1)}"
   }
 }
+
+resource "aws_internet_gateway" "main" {
+  vpc_id = aws_vpc.main.id
+
+  tags = {
+    Name = "osj-terraform-with-aq-igw"
+  }
+}

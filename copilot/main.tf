@@ -72,3 +72,11 @@ resource "aws_subnet" "subnet6" {
     Name = "osj-terraform-with-cp-prv-db-c"
   }
 }
+
+resource "aws_internet_gateway" "igw" {
+  vpc_id = aws_vpc.main.id
+
+  tags = {
+    Name = "osj-terraform-with-cp-igw"
+  }
+}
