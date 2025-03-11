@@ -69,3 +69,41 @@ variable "existing_eip_tags" {
   type        = map(string)
 }
 
+variable "route_tables" {
+  description = "Configuration for route tables"
+  type = map(object({
+    type           = string        # "public", "private_ap", or "private_db"
+    routes         = list(object({
+      cidr_block     = string
+      gateway_key    = string      # "igw" or "nat"
+    }))
+  }))
+  default = {
+    pub = {
+      type = "public"
+      routes = [{
+        cidr_block  = "0.0.0.0/0"
+        gateway_key = "igw"
+      }]
+    }
+    prv_ap = {
+      type = "private_ap"
+      routes = [{
+        cidr_block  = "0.0.0.0/0"
+        gateway_key = "nat"
+      }]
+    }
+    prv_db = {
+      type    = "private_db"
+      routes  = []
+    }
+  }
+}
+
+# variable "subnet_associations" {
+#   description = "Map of subnet IDs to route table types"
+#   type = map(object({
+#     subnet_id = string
+#     rt_type   = string
+#   }))
+# }

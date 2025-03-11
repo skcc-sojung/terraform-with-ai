@@ -95,3 +95,27 @@ resource "aws_nat_gateway" "nat" {
 
   depends_on = [aws_internet_gateway.igw]
 }
+
+resource "aws_route_table" "public_rt" {
+  vpc_id = aws_vpc.main.id
+
+  tags = {
+    Name = "osj-terraform-with-cp-pub-rt"
+  }
+}
+
+resource "aws_route_table" "private_ap_rt" {
+  vpc_id = aws_vpc.main.id
+
+  tags = {
+    Name = "osj-terraform-with-cp-prv-ap-rt"
+  }
+}
+
+resource "aws_route_table" "private_db_rt" {
+  vpc_id = aws_vpc.main.id
+
+  tags = {
+    Name = "osj-terraform-with-cp-prv-db-rt"
+  }
+}

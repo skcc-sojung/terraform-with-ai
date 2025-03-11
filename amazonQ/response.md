@@ -1,205 +1,312 @@
 # Try 1
 ### Prompt
-> Create a Terraform script to create an AWS NAT Gateway with the following specifications: 
->  - Name: osj-terraform-with-{aq | cp}-nat
->  - Subnet: osj-terraform-with-{aq | cp}-pub-a
->  - Connection type: Public
->  - Elastic IP allocation ID: Select "Elastic IP allocation"
+> Write a Terraform script to create the following AWS Route Tables:
+> 1. Public Route Table
+>   - Name tag: osj-terraform-with-{aq | cp}-pub-rt
+>   - VPC: osj-terraform-with-{aq | cp}-vpc
+> 2. Private Route Table for Application Subnet
+>   - Name tag: osj-terraform-with-{aq | cp}-pri-ap-rt
+>   - VPC: osj-terraform-with-{aq | cp}-vpc
+> 3. Private Route Table for Database Subnet
+>    - Name tag: osj-terraform-with-{aq | cp}-pri-db-rt
+>    - VPC: osj-terraform-with-{aq | cp}-vpc
+>
+> Please include the resource definitions for all three route tables, and use the Name tag to label each route table accordingly.
+
 
 ### Response
-I'll help you create a Terraform script for an AWS NAT Gateway based on your specifications. I'll build upon your existing main.tf file and add the necessary resources.<sup>[1](#footnote_1)</sup>
-
-First, we need to create an Elastic IP, and then create the NAT Gateway. Here's the Terraform configuration: <sup>[2](#footnote_2)</sup>
+I'll help you create the Terraform configuration for the three route tables based on your existing VPC configuration. Here's the script: <sup>[1](#footnote_1)</sup>
 
 ```hcl
-# Create Elastic IP for NAT Gateway
-resource "aws_eip" "nat" {
-  domain = "vpc"  # Required for NAT Gateway
+# Public Route Table
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.main.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.igw.id
+  }
 
   tags = {
-    Name = "osj-terraform-with-aq-nat-eip"
+    Name = "osj-terraform-with-cp-pub-rt"
   }
 }
 
-# Create NAT Gateway
-resource "aws_nat_gateway" "main" {
-  allocation_id = aws_eip.nat.id
-  # Reference the public subnet where NAT Gateway will be created
-  subnet_id = aws_subnet.subnets["public_a"].id  # Assuming this matches your subnet configuration
-
-  tags = {
-    Name = "osj-terraform-with-aq-nat"
-  }
-
-  # Add dependency on Internet Gateway
-  depends_on = [aws_internet_gateway.main]
-}
-```
-
-A few important notes about this configuration:
-1. The `aws_eip` resource creates an Elastic IP that will be associated with the NAT Gateway.
-2. The `aws_nat_gateway` resource creates the NAT Gateway itself with:
-   - A public connection type (default)
-   - The Elastic IP we created
-   - Placement in your public subnet
-   - The specified name tag
-3. The depends_on attribute ensures the Internet Gateway is created before the NAT Gateway, which is a required dependency.
-4. Make sure your subnet reference ( subnet_id) matches the correct key in your subnet configuration. You might need to adjust "public_a" based on your actual subnet configuration in the variables.
-
-To make this NAT Gateway functional, you'll also need to add appropriate route table entries for your private subnets to route traffic through this NAT Gateway. Here's how you can add that:
-
-```hcl
-# Create route table for private subnets
-resource "aws_route_table" "private" {
+# Private Route Table for Application Subnet
+resource "aws_route_table" "private_ap" {
   vpc_id = aws_vpc.main.id
 
   route {
     cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.main.id
+    nat_gateway_id = aws_nat_gateway.nat.id
   }
 
   tags = {
-    Name = "osj-terraform-with-aq-private-rt"
+    Name = "osj-terraform-with-cp-pri-ap-rt"
   }
 }
 
-# Associate the route table with private subnets
-resource "aws_route_table_association" "private" {
-  for_each = {
-    for k, v in var.subnet_config : k => v
-    if contains(split("_", k), "private")
-  }
-
-  subnet_id      = aws_subnet.subnets[each.key].id
-  route_table_id = aws_route_table.private.id
-}
-```
-Remember that NAT Gateways incur costs when they're running. They're charged based on both hourly usage and data processing.
-
-
-#### Sources
-
-<a name="footnote_1">[1]</a> [Work with NAT gateways - Amazon Virtual Private Cloud](docs.aws.amazon.comvpclatestnat-gateway-working-with.html)
-
-<a name="footnote_2">[2]</a> [Amazon EC2 examples using AWS CLI - AWS SDK Code Examples](docs.aws.amazon.comcode-librarylatestcli_2_ec2_code_examples.html)
-
-## Troubleshooting
-### Prompt
-에러 삽입
-> Error: Value for unconfigurable attribute
-│
-│ with aws_eip.nat,
-│ on main.tf line 35, in resource "aws_eip" "nat":
-│ 35: domain = "vpc" # Required for NAT Gateway
-│
-│ Can't configure a value for "domain": its value will be decided automatically based on the result of applying this configuration.
-
-### Response
-The error occurs because the `domain` attribute in the `aws_eip` resource is being automatically determined by AWS. Let's fix the EIP configuration: <sup>[1](#footnote_3)</sup>
-
-```hcl
-# Create Elastic IP for NAT Gateway
-resource "aws_eip" "nat" {
-  tags = {
-    Name = "${var.project_prefix}-nat-eip"
-  }
-
-  # Add depends_on to ensure VPC is available first
-  depends_on = [aws_vpc.main]
-}
-
-# Create NAT Gateway
-resource "aws_nat_gateway" "main" {
-  allocation_id = aws_eip.nat.id
-  subnet_id     = aws_subnet.subnets["public_a"].id
+# Private Route Table for Database Subnet
+resource "aws_route_table" "private_db" {
+  vpc_id = aws_vpc.main.id
 
   tags = {
-    Name = "${var.project_prefix}-nat"
+    Name = "osj-terraform-with-cp-pri-db-rt"
   }
+}
 
-  # Add dependency on Internet Gateway and EIP
-  depends_on = [
-    aws_internet_gateway.main,
-    aws_eip.nat
-  ]
+# Route Table Associations for Public Subnets
+resource "aws_route_table_association" "public_a" {
+  subnet_id      = aws_subnet.subnet1.id
+  route_table_id = aws_route_table.public.id
+}
+
+resource "aws_route_table_association" "public_c" {
+  subnet_id      = aws_subnet.subnet2.id
+  route_table_id = aws_route_table.public.id
+}
+
+# Route Table Associations for Application Private Subnets
+resource "aws_route_table_association" "private_ap_a" {
+  subnet_id      = aws_subnet.subnet3.id
+  route_table_id = aws_route_table.private_ap.id
+}
+
+resource "aws_route_table_association" "private_ap_c" {
+  subnet_id      = aws_subnet.subnet4.id
+  route_table_id = aws_route_table.private_ap.id
+}
+
+# Route Table Associations for Database Private Subnets
+resource "aws_route_table_association" "private_db_a" {
+  subnet_id      = aws_subnet.subnet5.id
+  route_table_id = aws_route_table.private_db.id
+}
+
+resource "aws_route_table_association" "private_db_c" {
+  subnet_id      = aws_subnet.subnet6.id
+  route_table_id = aws_route_table.private_db.id
 }
 ```
 
-Key changes:
-1. Removed the domain attribute from the EIP resource as it's automatically determined
-2. Kept all other configurations the same
+Key points about this configuration:
 
-This should resolve the error while maintaining the desired functionality. The EIP will still be created correctly and associated with the NAT Gateway.
+1. Public Route Table:
+  - Has a route to the Internet Gateway (0.0.0.0/0)
+  - Associated with public subnets (subnet1 and subnet2)
+
+2. Private Application Route Table:
+  - Has a route through the NAT Gateway for internet access
+  - Associated with application private subnets (subnet3 and subnet4)
+
+3. Private Database Route Table:
+  - No internet access routes defined (isolated)
+  - Associated with database private subnets (subnet5 and subnet6)
+
+4. Route Table Associations:
+  - Each subnet is explicitly associated with its corresponding route table
+  - Associations are named to clearly indicate which subnet they connect
+
+The configuration:
+ - Uses your existing VPC, Internet Gateway, and NAT Gateway
+ - Creates appropriate routing for each subnet tier
+ - Follows AWS best practices for network isolation
+ - Maintains consistent naming conventions
+
+Remember that:
+ - Public subnets can access the internet directly via the Internet Gateway
+ - Application private subnets can access the internet via the NAT Gateway
+ - Database private subnets have no internet access for security
+
 
 #### Sources
-<a name="footnote_3">[1] </a>[InternalError when associating EIP with Lambda ENI | AWS re:Post](repost.awsquestionsQUiBy0C0gUQYSjrq4HbFrNQQinternalerror-when-associating-eip-with-lambda-eni)
-
-
+<a name="footnote_1">[1]</a>[Amazon EC2 examples using AWS CLI - AWS SDK Code Examples](docs.aws.amazon.comcode-librarylatestcli_2_ec2_code_examples.html)
 
 <br/>
 
-# Try 2
+## 스크립트 개선
 ### Prompt
-> I want to create a Terraform script to create an AWS NAT Gateway.
-In the AWS Console, when creating a NAT Gateway, clicking the orange "Allocate Elastic IP" button allocates a new IP address.
-I want to avoid allocating a new Elastic IP in Terraform. Instead, I want to retrieve the ID of an existing Elastic IP that is already created in my AWS account and assign it to the NAT Gateway. How can I achieve this in Terraform?
+> Refactor the Terraform code to reduce duplication by using variables defined in a variables.tf file.
+Make the code more reusable and cleaner by referencing variables such as VPC ID and name prefixes, instead of hardcoding values.
 
 ### Response
-I'll help you create a Terraform script that uses an existing Elastic IP for your NAT Gateway. You can use a data source to look up an existing Elastic IP address. <sup>[1](#footnote_4)</sup>
+I'll help you refactor the code to make it more maintainable and reusable. Here's the improved version:
 
-Here's how to do it:
-
-```hcl
-# Look up existing Elastic IP using its tags
-data "aws_eip" "existing_eip" {
-  tags = {
-    Name = "your-existing-eip-tag-name"  # Replace with your EIP's tag
-  }
-}
-
-# Alternatively, you can look up by allocation ID
-# data "aws_eip" "existing_eip" {
-#   id = "eipalloc-xxxxxxxxxxxxx"  # Replace with your EIP allocation ID
-# }
-
-# Create NAT Gateway using existing EIP
-resource "aws_nat_gateway" "main" {
-  allocation_id = data.aws_eip.existing_eip.id
-  subnet_id     = aws_subnet.subnets["public_a"].id
-
-  tags = {
-    Name = "${var.project_prefix}-nat"
-  }
-
-  depends_on = [aws_internet_gateway.main]
-}
-```
-
-Key points:
-
-1. The data block is used to query and retrieve information about an existing EIP
-2. You can look up the EIP either by tags or allocation ID
-3. Use data.aws_eip.existing_eip.id to reference the EIP's allocation ID in the NAT Gateway resource
-
-If you want to make the EIP lookup more flexible, you can parameterize it using variables:
+1. First, let's create/update the `variables.tf`:
 
 ```hcl
-variable "existing_eip_id" {
-  description = "Allocation ID of existing Elastic IP to use for NAT Gateway"
+# variables.tf
+variable "project_prefix" {
+  description = "Prefix for resource naming"
   type        = string
-  default     = null  # Optional: provide a default value
+  default     = "osj-terraform-with-aq"
 }
 
-data "aws_eip" "existing_eip" {
-  id = var.existing_eip_id
+variable "vpc_id" {
+  description = "ID of the VPC"
+  type        = string
+}
+
+variable "route_tables" {
+  description = "Configuration for route tables"
+  type = map(object({
+    type           = string        # "public", "private_ap", or "private_db"
+    routes         = list(object({
+      cidr_block     = string
+      gateway_key    = string      # "igw" or "nat"
+    }))
+  }))
+  default = {
+    public = {
+      type = "public"
+      routes = [{
+        cidr_block  = "0.0.0.0/0"
+        gateway_key = "igw"
+      }]
+    }
+    private_ap = {
+      type = "private_ap"
+      routes = [{
+        cidr_block  = "0.0.0.0/0"
+        gateway_key = "nat"
+      }]
+    }
+    private_db = {
+      type    = "private_db"
+      routes  = []
+    }
+  }
+}
+
+variable "subnet_associations" {
+  description = "Map of subnet IDs to route table types"
+  type = map(object({
+    subnet_id = string
+    rt_type   = string
+  }))
+}
+
+```
+
+2. Update the `main.tf`:
+```
+# main.tf
+locals {
+  gateway_ids = {
+    igw = aws_internet_gateway.main.id
+    nat = aws_nat_gateway.main.id
+  }
+}
+
+# Create route tables
+resource "aws_route_table" "this" {
+  for_each = var.route_tables
+  vpc_id   = aws_vpc.main.id
+
+  tags = {
+    Name = "${var.project_prefix}-${each.key}-rt"
+  }
+}
+
+# Create routes
+resource "aws_route" "this" {
+  for_each = {
+    for pair in flatten([
+      for rt_key, rt in var.route_tables : [
+        for route in rt.routes : {
+          rt_key      = rt_key
+          cidr_block  = route.cidr_block
+          gateway_key = route.gateway_key
+        }
+      ]
+    ]) : "${pair.rt_key}-${pair.cidr_block}" => pair
+  }
+
+  route_table_id         = aws_route_table.this[each.value.rt_key].id
+  destination_cidr_block = each.value.cidr_block
+  gateway_id            = try(local.gateway_ids[each.value.gateway_key], null)
+  nat_gateway_id        = try(local.gateway_ids[each.value.gateway_key], null)
+}
+
+# Create route table associations
+resource "aws_route_table_association" "this" {
+  for_each = var.subnet_associations
+
+  subnet_id      = each.value.subnet_id
+  route_table_id = aws_route_table.this[each.value.rt_type].id
 }
 ```
-Then you can provide the EIP allocation ID in your terraform.tfvars file:
+
+3. Create a `terraform.tfvars` file:
+```
+# terraform.tfvars
+project_prefix = "osj-terraform-with-aq"
+
+subnet_associations = {
+  "public_a" = {
+    subnet_id = "subnet-xxxxx1"  # Replace with your subnet IDs
+    rt_type   = "public"
+  }
+  "public_c" = {
+    subnet_id = "subnet-xxxxx2"
+    rt_type   = "public"
+  }
+  "private_ap_a" = {
+    subnet_id = "subnet-xxxxx3"
+    rt_type   = "private_ap"
+  }
+  "private_ap_c" = {
+    subnet_id = "subnet-xxxxx4"
+    rt_type   = "private_ap"
+  }
+  "private_db_a" = {
+    subnet_id = "subnet-xxxxx5"
+    rt_type   = "private_db"
+  }
+  "private_db_c" = {
+    subnet_id = "subnet-xxxxx6"
+    rt_type   = "private_db"
+  }
+}
+```
+
+Key improvements in this refactored version:
+1. Dynamic Resource Creation :
+   - Uses for_each to create multiple route tables
+   - Dynamically creates routes based on configuration
+   - Handles route table associations flexibly
+
+2. Reduced Duplication :
+   - Common values are defined once in variables
+   - Resource naming follows a consistent pattern
+   - Route configurations are templated
+
+3. Improved Maintainability :
+   - All configurations are in variables
+   - Easy to add or modify route tables
+   - Clear separation of configuration from implementation
+
+4. Better Organization :
+   - Variables are properly typed and documented
+   - Uses locals for computed values
+   - Configuration is environment-independent
+
+To use this configuration:
+1. Update the subnet IDs in terraform.tfvars with your actual subnet IDs
+2. Adjust the project_prefix if needed
+3. Run Terraform commands:
 
 ```hcl
-existing_eip_id = "eipalloc-xxxxxxxxxxxxx"
+terraform init
+terraform plan
+terraform apply
 ```
-This approach gives you more control over which existing EIP to use and makes the configuration more reusable.
-#### Sources
-<a name="footnote_4">[1] </a>[Elastic IP for NAT gateways | AWS re:Post](repost.awsquestionsQUY2EUjajxTTODkb3E_olq3welastic-ip-for-nat-gateways)
 
+This refactored version is:
+- More maintainable
+- More reusable
+- Less prone to errors
+- Easier to modify
+- Following Terraform best practices
+
+Remember to replace the subnet IDs with your actual subnet IDs before applying the configuration.
