@@ -59,34 +59,20 @@ resource "aws_route_table" "this" {
   vpc_id   = aws_vpc.main.id
 
   tags = {
-    Name = "${var.project_prefix}-${each.key}-rt"
+    Name = "${var.project_prefix}-${replace(each.key, "_", "-")}-rt"
   }
 }
 
-# Create routes
-# resource "aws_route" "this" {
-#   for_each = {
-#     for pair in flatten([
-#       for rt_key, rt in var.route_tables : [
-#         for route in rt.routes : {
-#           rt_key      = rt_key
-#           cidr_block  = route.cidr_block
-#           gateway_key = route.gateway_key
-#         }
-#       ]
-#     ]) : "${pair.rt_key}-${pair.cidr_block}" => pair
-#   }
+# Route table associations using dynamic configuration
+resource "aws_route_table_association" "subnet_associations" {
+  for_each = var.subnet_config
 
-#   route_table_id         = aws_route_table.this[each.value.rt_key].id
-#   destination_cidr_block = each.value.cidr_block
-#   gateway_id            = try(local.gateway_ids[each.value.gateway_key], null)
-#   nat_gateway_id        = try(local.gateway_ids[each.value.gateway_key], null)
-# }
-
-# Create route table associations
-# resource "aws_route_table_association" "this" {
-#   for_each = var.subnet_associations
-
-#   subnet_id      = each.value.subnet_id
-#   route_table_id = aws_route_table.this[each.value.rt_type].id
-# }
+  subnet_id = aws_subnet.subnets[each.key].id
+  route_table_id = aws_route_table.this[
+    lookup({
+      "pub"    = "pub"
+      "prv-ap" = "prv-ap"
+      "prv-db" = "prv-db"
+    }, each.value.subnet_type)
+  ].id
+}

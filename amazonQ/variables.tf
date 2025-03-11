@@ -80,30 +80,22 @@ variable "route_tables" {
   }))
   default = {
     pub = {
-      type = "public"
+      type = "pub"
       routes = [{
         cidr_block  = "0.0.0.0/0"
         gateway_key = "igw"
       }]
     }
-    prv_ap = {
-      type = "private_ap"
+    prv-ap = {
+      type = "prv-ap"
       routes = [{
         cidr_block  = "0.0.0.0/0"
         gateway_key = "nat"
       }]
     }
-    prv_db = {
-      type    = "private_db"
+    prv-db = {
+      type    = "prv-db"
       routes  = []
     }
   }
 }
-
-# variable "subnet_associations" {
-#   description = "Map of subnet IDs to route table types"
-#   type = map(object({
-#     subnet_id = string
-#     rt_type   = string
-#   }))
-# }
