@@ -24,6 +24,7 @@ variable "subnet_config" {
     availability_zone = string
     subnet_type       = string
   }))
+
   default = {
     pub_a = {
       cidr_block        = "100.0.0.0/24"
@@ -57,3 +58,14 @@ variable "subnet_config" {
     }
   }
 }
+
+variable "existing_eip_id" {
+  description = "Allocation ID of existing Elastic IP to use for NAT Gateway"
+  type        = string
+}
+
+variable "existing_eip_tags" {
+  description = "Tags to find existing Elastic IP"
+  type        = map(string)
+}
+

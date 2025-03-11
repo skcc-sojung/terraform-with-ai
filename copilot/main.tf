@@ -80,3 +80,18 @@ resource "aws_internet_gateway" "igw" {
     Name = "osj-terraform-with-cp-igw"
   }
 }
+
+data "aws_eip" "existing_eip" {
+  public_ip = "3.37.13.99"
+}
+
+resource "aws_nat_gateway" "nat" {
+  allocation_id = data.aws_eip.existing_eip.id
+  subnet_id     = aws_subnet.subnet1.id
+
+  tags = {
+    Name = "osj-terraform-with-cp-nat"
+  }
+
+  depends_on = [aws_internet_gateway.igw]
+}

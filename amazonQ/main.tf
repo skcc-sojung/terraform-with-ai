@@ -29,3 +29,20 @@ resource "aws_internet_gateway" "main" {
     Name = "osj-terraform-with-aq-igw"
   }
 }
+
+data "aws_eip" "existing_eip" {
+  id = var.existing_eip_id
+}
+
+# Create NAT Gateway
+resource "aws_nat_gateway" "main" {
+  allocation_id = data.aws_eip.existing_eip.id
+  subnet_id = aws_subnet.subnets["pub_a"].id
+
+  tags = {
+    Name = "${var.project_prefix}-nat"
+  }
+
+  depends_on = [aws_internet_gateway.main]
+}
+
