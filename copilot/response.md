@@ -1,55 +1,51 @@
 # Try 1
 ### Prompt
-> Write a Terraform script to associate subnets with their respective AWS Route Tables.
+> Write a Terraform script to add routes to specific AWS Route Tables.
 > 
-> * Associate the `osj-terraform-with-{aq | cp}-pub-rt` route table with the following subnets:
->   - osj-terraform-with-{aq | cp}-pub-a
->   - osj-terraform-with-{aq | cp}-pub-c
+> * For the route table osj-terraform-with-{aq | cp}-pub-rt, add a route:
+>   - Destination CIDR block: 0.0.0.0/0
+>   - Target: Internet Gateway (osj-terraform-with-{aq | cp}-igw)
+> * For the route table osj-terraform-with-{aq | cp}-prv-ap-rt, add a route:
+>   - Destination CIDR block: 0.0.0.0/0
+>   - Target: NAT Gateway (osj-terraform-with-{aq | cp}-nat)
+> * For the route table osj-terraform-with-{aq | cp}-prv-db-rt, no routing configuration is needed.
 >
-> * Associate the `osj-terraform-with-{aq | cp}-prv-ap-rt` route table with the following subnets:
->   - osj-terraform-with-{aq | cp}-prv-ap-a
->   - osj-terraform-with-{aq | cp}-prv-ap-c
->
-> * Associate the `osj-terraform-with-{aq | cp}-prv-db-rt` route table with the following subnets:
->   - osj-terraform-with-{aq | cp}-prv-db-a
->   - osj-terraform-with-{aq | cp}-prv-db-c
->
-> Use the `aws_route_table_association` resource for each association. If possible, make the code reusable by referencing variables from `variables.tf.`
+> Use the aws_route resource in Terraform and consider using variables for dynamic referencing where appropriate.
+
 <br/>
 
 ### Response
-Here is the Terraform script to associate the subnets with their respective AWS Route Tables. This script assumes that you have defined the necessary variables in `variables.tf`.
+Here is the Terraform script to add routes to the specified AWS Route Tables:
 
 ```hcl
 /* ... */
 
-resource "aws_route_table_association" "public_rt_assoc1" {
-  subnet_id      = aws_subnet.subnet1.id
-  route_table_id = aws_route_table.public_rt.id
+resource "aws_route" "public_rt_route" {
+  route_table_id         = aws_route_table.public_rt.id
+  destination_cidr_block = "0.0.0.0/0"
+  gateway_id             = aws_internet_gateway.igw.id
 }
 
-resource "aws_route_table_association" "public_rt_assoc2" {
-  subnet_id      = aws_subnet.subnet2.id
-  route_table_id = aws_route_table.public_rt.id
-}
-
-resource "aws_route_table_association" "private_ap_rt_assoc1" {
-  subnet_id      = aws_subnet.subnet3.id
-  route_table_id = aws_route_table.private_ap_rt.id
-}
-
-resource "aws_route_table_association" "private_ap_rt_assoc2" {
-  subnet_id      = aws_subnet.subnet4.id
-  route_table_id = aws_route_table.private_ap_rt.id
-}
-
-resource "aws_route_table_association" "private_db_rt_assoc1" {
-  subnet_id      = aws_subnet.subnet5.id
-  route_table_id = aws_route_table.private_db_rt.id
-}
-
-resource "aws_route_table_association" "private_db_rt_assoc2" {
-  subnet_id      = aws_subnet.subnet6.id
-  route_table_id = aws_route_table.private_db_rt.id
+resource "aws_route" "private_ap_rt_route" {
+  route_table_id         = aws_route_table.private_ap_rt.id
+  destination_cidr_block = "0.0.0.0/0"
+  nat_gateway_id         = aws_nat_gateway.nat.id
 }
 ```
+
+<br/>
+
+`variables.tf`
+```hcl
+variable "env" {
+  description = "Environment identifier (e.g., aq or cp)"
+  type        = string
+}
+
+variable "existing_eip_public_ip" {
+  description = "Public IP of the existing Elastic IP"
+  type        = string
+}
+```
+
+This script adds the necessary routes to the public and private application route tables. The `env` variable is used to make the script reusable for different environments (e.g., `aq` or `cp`). Replace `YOUR_EXISTING_EIP_PUBLIC_IP` with the actual public IP address of the existing Elastic IP.

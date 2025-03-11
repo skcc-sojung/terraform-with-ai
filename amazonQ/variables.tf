@@ -78,6 +78,7 @@ variable "route_tables" {
       gateway_key    = string      # "igw" or "nat"
     }))
   }))
+  
   default = {
     pub = {
       type = "pub"

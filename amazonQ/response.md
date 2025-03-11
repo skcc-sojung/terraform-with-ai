@@ -1,136 +1,246 @@
 # Try 1
 ### Prompt
-> Write a Terraform script to associate subnets with their respective AWS Route Tables.
+> Write a Terraform script to add routes to specific AWS Route Tables.
 > 
-> * Associate the `osj-terraform-with-{aq | cp}-pub-rt` route table with the following subnets:
->   - osj-terraform-with-{aq | cp}-pub-a
->   - osj-terraform-with-{aq | cp}-pub-c
+> * For the route table osj-terraform-with-{aq | cp}-pub-rt, add a route:
+>   - Destination CIDR block: 0.0.0.0/0
+>   - Target: Internet Gateway (osj-terraform-with-{aq | cp}-igw)
+> * For the route table osj-terraform-with-{aq | cp}-prv-ap-rt, add a route:
+>   - Destination CIDR block: 0.0.0.0/0
+>   - Target: NAT Gateway (osj-terraform-with-{aq | cp}-nat)
+> * For the route table osj-terraform-with-{aq | cp}-prv-db-rt, no routing configuration is needed.
 >
-> * Associate the `osj-terraform-with-{aq | cp}-prv-ap-rt` route table with the following subnets:
->   - osj-terraform-with-{aq | cp}-prv-ap-a
->   - osj-terraform-with-{aq | cp}-prv-ap-c
->
-> * Associate the `osj-terraform-with-{aq | cp}-prv-db-rt` route table with the following subnets:
->   - osj-terraform-with-{aq | cp}-prv-db-a
->   - osj-terraform-with-{aq | cp}-prv-db-c
->
-> Use the `aws_route_table_association` resource for each association. If possible, make the code reusable by referencing variables from `variables.tf.`
+> Use the aws_route resource in Terraform and consider using variables for dynamic referencing where appropriate.
 
 <br/>
 
-
 ### Response
-I'll help you create a Terraform script for route table associations using your existing variables and making it reusable. Based on your variables.tf file, here's the implementation:
+I'll help you create a Terraform script to add routes to your route tables using your existing variable structure. Here's the implementation:
 
 ```hcl
-# Route table associations using dynamic configuration
-resource "aws_route_table_association" "subnet_associations" {
-  for_each = var.subnet_config
-
-  subnet_id = aws_subnet.subnets[each.key].id
-  route_table_id = aws_route_table.this[
-    lookup({
-      "pub"    = "pub"
-      "prv-ap" = "prv_ap"
-      "prv-db" = "prv_db"
-    }, each.value.subnet_type)
-  ].id
-}
-
-# Alternative approach using locals for better readability
 locals {
-  subnet_route_table_map = {
-    for name, config in var.subnet_config : name => {
-      subnet_id = aws_subnet.subnets[name].id
-      route_table_type = lookup({
-        "pub"    = "pub"
-        "prv-ap" = "prv_ap"
-        "prv-db" = "prv_db"
-      }, config.subnet_type)
-    }
+  # Map gateway types to their resource IDs
+  gateway_ids = {
+    igw = aws_internet_gateway.main.id
+    nat = aws_nat_gateway.main.id
+  }
+
+  # Create a flattened map of routes for easier iteration
+  route_configurations = {
+    for pair in flatten([
+      for rt_key, rt in var.route_tables : [
+        for route in rt.routes : {
+          rt_key      = rt_key
+          cidr_block  = route.cidr_block
+          gateway_key = route.gateway_key
+        }
+      ]
+    ]) : "${pair.rt_key}-${pair.cidr_block}" => pair
   }
 }
 
-resource "aws_route_table_association" "subnets" {
-  for_each = local.subnet_route_table_map
+# Create routes using the flattened configuration
+resource "aws_route" "routes" {
+  for_each = local.route_configurations
 
-  subnet_id      = each.value.subnet_id
-  route_table_id = aws_route_table.this[each.value.route_table_type].id
+  route_table_id         = aws_route_table.this[each.value.rt_key].id
+  destination_cidr_block = each.value.cidr_block
+
+  # Dynamically set the appropriate gateway based on the gateway_key
+  dynamic "gateway" {
+    for_each = each.value.gateway_key == "igw" ? [1] : []
+    content {
+      gateway_id = local.gateway_ids["igw"]
+    }
+  }
+
+  dynamic "gateway" {
+    for_each = each.value.gateway_key == "nat" ? [1] : []
+    content {
+      nat_gateway_id = local.gateway_ids["nat"]
+    }
+  }
+
+  depends_on = [
+    aws_route_table.this,
+    aws_internet_gateway.main,
+    aws_nat_gateway.main
+  ]
 }
 ```
+And here's how to update your variables.tf to support this configuration:
 
-This code:
-1. Uses your existing subnet_config variable structure
-
-2. Automatically associates subnets with their corresponding route tables based on subnet type <sup>[1](#footnote_1)</sup>
-
-3. Uses a lookup map to match subnet types to route table names
-
-4. Creates associations for all subnets defined in your variables
-
-The code will automatically:
-  - Associate public subnets with the public route table <sup>[2](#footnote_2)</sup>
-  - Associate private application subnets with the private application route table
-  - Associate private database subnets with the private database route table
-
-Your existing variables.tf already has the necessary structure with:
 ```hcl
-variable "subnet_config" {
-  description = "Configuration for all subnets"
+# variables.tf
+variable "route_tables" {
+  description = "Configuration for route tables"
   type = map(object({
-    cidr_block        = string
-    availability_zone = string
-    subnet_type       = string
+    type    = string        # "pub", "prv-ap", or "prv-db"
+    routes  = list(object({
+      cidr_block  = string
+      gateway_key = string  # "igw" or "nat"
+    }))
   }))
 
   default = {
-    pub_a = {
-      cidr_block        = "100.0.0.0/24"
-      availability_zone = "ap-northeast-2a"
-      subnet_type       = "pub"
+    pub = {
+      type = "pub"
+      routes = [{
+        cidr_block  = "0.0.0.0/0"
+        gateway_key = "igw"
+      }]
     }
-    pub_c = {
-      cidr_block        = "100.0.10.0/24"
-      availability_zone = "ap-northeast-2c"
-      subnet_type       = "pub"
+    "prv-ap" = {
+      type = "prv-ap"
+      routes = [{
+        cidr_block  = "0.0.0.0/0"
+        gateway_key = "nat"
+      }]
     }
-    prv_ap_a = {
-      cidr_block        = "100.0.20.0/24"
-      availability_zone = "ap-northeast-2a"
-      subnet_type       = "prv-ap"
-    }
-    prv_ap_c = {
-      cidr_block        = "100.0.30.0/24"
-      availability_zone = "ap-northeast-2c"
-      subnet_type       = "prv-ap"
-    }
-    prv_db_a = {
-      cidr_block        = "100.0.40.0/24"
-      availability_zone = "ap-northeast-2a"
-      subnet_type       = "prv-db"
-    }
-    prv_db_c = {
-      cidr_block        = "100.0.50.0/24"
-      availability_zone = "ap-northeast-2c"
-      subnet_type       = "prv-db"
+    "prv-db" = {
+      type = "prv-db"
+      routes = []  # No routes needed for database subnet
     }
   }
 }
 ```
 
-Benefits of this approach:
-1. DRY (Don't Repeat Yourself) - no repetitive code
-2. Maintainable - all configurations in one place
-3. Scalable - easily add new subnets by updating variables
-4. Consistent - uses the same naming convention throughout
-5. Error-resistant - uses variable references instead of hardcoded values
+You can also use `terraform.tfvars` to override the default values:
+```hcl
+# terraform.tfvars
+route_tables = {
+  pub = {
+    type = "pub"
+    routes = [{
+      cidr_block  = "0.0.0.0/0"
+      gateway_key = "igw"
+    }]
+  }
+  "prv-ap" = {
+    type = "prv-ap"
+    routes = [{
+      cidr_block  = "0.0.0.0/0"
+      gateway_key = "nat"
+    }]
+  }
+  "prv-db" = {
+    type = "prv-db"
+    routes = []
+  }
+}
+```
 
-The associations will be created automatically based on the subnet type defined in your variables, making the code more maintainable and less prone to errors.
+This configuration:
+1. Creates routes based on the configuration in variables
+2. Automatically associates routes with the correct gateways
+3. Handles both Internet Gateway and NAT Gateway routes
+4. Skips route creation for the database route table
+5. Uses dynamic blocks for gateway assignment
+6. Includes proper dependencies
 
-#### Sources
-<a name="footnote_1">[1]</a>[Use AssociateRouteTable with a CLI - Amazon Elastic Compute Cloud](
-docs.aws.amazon.comec2latestexample_ec2_AssociateRouteTable_section.html)
+Key features:
+1. Dynamic Route Creation :
+  - Routes are created based on the configuration in variables
+  - Each route table can have multiple routes
+  - Empty route lists are handled properly
+2. Gateway Assignment :
+  - Uses the correct gateway type based on the configuration
+  - Supports both Internet Gateway and NAT Gateway
+  - Handles dependencies properly
+3. Maintainability :
+  - All configuration is in variables
+  - Easy to modify routes
+  - Clear separation of concerns
+4. Error Prevention :
+  - Includes necessary dependencies
+  - Uses proper resource references
+  - Validates configuration through variable types
 
-<a name="footnote_2">[2]</a> [Use AssociateRouteTable with a CLI - AWS SDK Code Examples](docs.aws.amazon.comcode-librarylatestec2_example_ec2_AssociateRouteTable_section.html)
+The script will:
+* Add the internet route (0.0.0.0/0) via IGW for the public route table
+* Add the internet route (0.0.0.0/0) via NAT for the private application route table
+* Skip route creation for the private database route table
 
-<br/>
+Remember to ensure that:
+1. Your VPC, Internet Gateway, and NAT Gateway are properly configured
+2. The route table associations are set up correctly
+3. The necessary permissions are in place
+
+## Troubleshooting
+`aws_route`에서 지원하지 않는 dynamic 블록을 스크립트에 생성하여 에러 발생
+
+### Prompt
+* 에러 삽입
+```
+Error: Unsupported block type
+│
+│ on main.tf line 102, in resource "aws_route" "routes":
+│ 102: dynamic "gateway" {
+│
+│ Blocks of type "gateway" are not expected here.
+╵
+╷
+│ Error: Unsupported block type
+│
+│ on main.tf line 109, in resource "aws_route" "routes":
+│ 109: dynamic "gateway" {
+│
+│ Blocks of type "gateway" are not expected here.
+```
+
+### Response
+I apologize for the error. The `aws_route` resource doesn't use dynamic blocks for gateway configuration. Here's the corrected version:
+
+```hcl
+locals {
+  # Map gateway types to their resource IDs
+  gateway_ids = {
+    igw = aws_internet_gateway.main.id
+    nat = aws_nat_gateway.main.id
+  }
+
+  # Create a flattened map of routes for easier iteration
+  route_configurations = {
+    for pair in flatten([
+      for rt_key, rt in var.route_tables : [
+        for route in rt.routes : {
+          rt_key      = rt_key
+          cidr_block  = route.cidr_block
+          gateway_key = route.gateway_key
+        }
+      ]
+    ]) : "${pair.rt_key}-${pair.cidr_block}" => pair
+  }
+}
+
+# Create routes using the flattened configuration
+resource "aws_route" "routes" {
+  for_each = local.route_configurations
+
+  route_table_id         = aws_route_table.this[each.value.rt_key].id
+  destination_cidr_block = each.value.cidr_block
+  
+  # Conditionally set the gateway_id or nat_gateway_id
+  gateway_id     = each.value.gateway_key == "igw" ? local.gateway_ids["igw"] : null
+  nat_gateway_id = each.value.gateway_key == "nat" ? local.gateway_ids["nat"] : null
+
+  depends_on = [
+    aws_route_table.this,
+    aws_internet_gateway.main,
+    aws_nat_gateway.main
+  ]
+}
+```
+
+Key changes:
+1. Removed the dynamic blocks
+2. Used conditional expressions to set the appropriate gateway
+3. Set unused gateway values to null
+
+This corrected version will:
+ - Create routes for public subnets using the Internet Gateway
+ - Create routes for private application subnets using the NAT Gateway
+ - Skip route creation for database subnets
+ - Properly handle the gateway assignments
+
+The rest of your configuration (variables and locals) remains the same.

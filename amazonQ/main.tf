@@ -47,9 +47,23 @@ resource "aws_nat_gateway" "main" {
 }
 
 locals {
+  # Map gateway types to their resource IDs
   gateway_ids = {
     igw = aws_internet_gateway.main.id
     nat = aws_nat_gateway.main.id
+  }
+
+  # Create a flattened map of routes for easier iteration
+  route_configurations = {
+    for pair in flatten([
+      for rt_key, rt in var.route_tables : [
+        for route in rt.routes : {
+          rt_key      = rt_key
+          cidr_block  = route.cidr_block
+          gateway_key = route.gateway_key
+        }
+      ]
+    ]) : "${pair.rt_key}-${pair.cidr_block}" => pair
   }
 }
 
@@ -75,4 +89,22 @@ resource "aws_route_table_association" "subnet_associations" {
       "prv-db" = "prv-db"
     }, each.value.subnet_type)
   ].id
+}
+
+# Create routes using the flattened configuration
+resource "aws_route" "routes" {
+  for_each = local.route_configurations
+
+  route_table_id         = aws_route_table.this[each.value.rt_key].id
+  destination_cidr_block = each.value.cidr_block
+
+  # Conditionally set the gateway_id or nat_gateway_id
+  gateway_id     = each.value.gateway_key == "igw" ? local.gateway_ids["igw"] : null
+  nat_gateway_id = each.value.gateway_key == "nat" ? local.gateway_ids["nat"] : null
+
+  depends_on = [
+    aws_route_table.this,
+    aws_internet_gateway.main,
+    aws_nat_gateway.main
+  ]
 }
