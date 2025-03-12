@@ -151,6 +151,48 @@ resource "aws_security_group" "ec2_sg" {
   }
 }
 
+# Local variables for rule configuration
+locals {
+  security_group_rules = {
+    pub_a = {
+      type        = "ingress"
+      from_port   = 80
+      to_port     = 80
+      protocol    = "tcp"
+      cidr_blocks = ["100.0.0.0/24"]
+      description = "${var.project_prefix}-pub-a-CIDR"
+    }
+    pub_c = {
+      type        = "ingress"
+      from_port   = 80
+      to_port     = 80
+      protocol    = "tcp"
+      cidr_blocks = ["100.0.10.0/24"]
+      description = "${var.project_prefix}-pub-c-CIDR"
+    }
+  }
+}
+
+# Data source to fetch existing security group
+data "aws_security_group" "existing" {
+  tags = {
+    Name = "${var.project_prefix}-ec2-sg"
+  }
+}
+
+# Security group rules using for_each
+resource "aws_security_group_rule" "inbound_rules" {
+  for_each = local.security_group_rules
+
+  type              = each.value.type
+  from_port         = each.value.from_port
+  to_port           = each.value.to_port
+  protocol          = each.value.protocol
+  cidr_blocks       = each.value.cidr_blocks
+  security_group_id = data.aws_security_group.existing.id
+  description       = each.value.description
+}
+
 locals {
   instance_configs = {
     "app-1" = {

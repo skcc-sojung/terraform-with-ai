@@ -194,10 +194,19 @@ resource "aws_security_group" "ec2_sg" {
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    from_port   = 22
-    to_port     = 22
+    description = "osj-terraform-with-${var.env}-pub-a-CIDR"
+    from_port   = 80
+    to_port     = 80
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = ["100.0.0.0/24"]
+  }
+
+  ingress {
+    description = "osj-terraform-with-${var.env}-pub-c-CIDR"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["100.0.10.0/24"]
   }
 
   egress {
@@ -205,6 +214,10 @@ resource "aws_security_group" "ec2_sg" {
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "osj-terraform-with-${var.env}-ec2-sg"
   }
 }
 
