@@ -100,3 +100,9 @@ variable "route_tables" {
     }
   }
 }
+
+variable "ami_id" {
+  description = "The ID of the AMI to use for the EC2 instance"
+  type        = string
+  default     = "ami-062cddb9d94dcf95d"  # Amazon Linux 2023 AMI 2023.6.20250303.0 x86_64 HVM kernel-6.1
+}

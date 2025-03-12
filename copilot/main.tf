@@ -2,6 +2,11 @@ provider "aws" {
   region = "ap-northeast-2"
 }
 
+#########################################
+#                                       #
+#               Network                 #
+#                                       #
+#########################################
 resource "aws_vpc" "main" {
   cidr_block = "100.0.0.0/16"
   enable_dns_support = true
@@ -160,4 +165,67 @@ resource "aws_route" "private_ap_rt_route" {
   route_table_id         = aws_route_table.private_ap_rt.id
   destination_cidr_block = "0.0.0.0/0"
   nat_gateway_id         = aws_nat_gateway.nat.id
+}
+
+
+#########################################
+#                                       #
+#              Web Server               #
+#                                       #
+#########################################
+resource "tls_private_key" "example" {
+  algorithm = "RSA"
+  rsa_bits  = 2048
+}
+
+resource "aws_key_pair" "key" {
+  key_name   = "osj-terraform-with-${var.env}-key"
+  public_key = tls_private_key.example.public_key_openssh
+}
+
+resource "local_file" "private_key" {
+  content  = tls_private_key.example.private_key_pem
+  filename = "${path.module}/osj-terraform-with-${var.env}-key.pem"
+}
+
+resource "aws_security_group" "ec2_sg" {
+  name        = "osj-terraform-with-${var.env}-ec2-sg"
+  description = "Security group for EC2 instance"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+resource "aws_instance" "app_instance" {
+  count                      = 2
+  ami                        = var.ami_id
+  instance_type              = "t2.micro"
+  key_name                   = aws_key_pair.key.key_name
+  subnet_id                  = element([aws_subnet.subnet3.id, aws_subnet.subnet4.id], count.index)
+  associate_public_ip_address = false
+
+  tags = {
+    Name = element(var.instance_tags, count.index)
+  }
+
+  root_block_device {
+    volume_size = 8
+    volume_type = "gp3"
+  }
+
+  vpc_security_group_ids = [aws_security_group.ec2_sg.id]
+
+  user_data = file("${path.module}/../user_data.sh")
 }

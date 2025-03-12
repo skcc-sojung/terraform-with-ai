@@ -1,4 +1,10 @@
 # main.tf
+
+#########################################
+#                                       #
+#               Network                 #
+#                                       #
+#########################################
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr
   instance_tenancy     = "default"
@@ -107,4 +113,93 @@ resource "aws_route" "routes" {
     aws_internet_gateway.main,
     aws_nat_gateway.main
   ]
+}
+
+#########################################
+#                                       #
+#              Web Server               #
+#                                       #
+#########################################
+# Key Pair
+resource "aws_key_pair" "app_key_pair" {
+  key_name   = "${var.project_prefix}-key"
+  public_key = tls_private_key.rsa.public_key_openssh
+}
+
+# Generate RSA key
+resource "tls_private_key" "rsa" {
+  algorithm = "RSA"
+  rsa_bits  = 2048
+}
+
+# Save private key locally
+resource "local_file" "private_key" {
+  content  = tls_private_key.rsa.private_key_pem
+  filename = "${var.project_prefix}-key.pem"
+
+  file_permission = "0400"
+}
+
+# Security Group
+resource "aws_security_group" "ec2_sg" {
+  name        = "${var.project_prefix}-ec2-sg"
+  description = "Security group for EC2 instance"
+  vpc_id      = data.aws_vpc.existing_vpc.id
+
+  tags = {
+    Name = "${var.project_prefix}-ec2-sg"
+  }
+}
+
+locals {
+  instance_configs = {
+    "app-1" = {
+      subnet_type = "prv-ap"
+      az         = "a"
+    }
+    "app-2" = {
+      subnet_type = "prv-ap"
+      az         = "c"
+    }
+  }
+}
+
+# EC2 Instances
+resource "aws_instance" "app_instances" {
+  for_each = local.instance_configs
+
+  ami           = var.ami_id
+  instance_type = "t2.micro"
+
+  subnet_id                   = data.aws_subnet.private_subnets[each.key].id
+  vpc_security_group_ids      = [aws_security_group.ec2_sg.id]
+  key_name                    = aws_key_pair.app_key_pair.key_name
+  associate_public_ip_address = false
+
+  root_block_device {
+    volume_size = 8
+    volume_type = "gp3"
+  }
+
+  user_data = file("../user_data.sh")
+
+  tags = {
+    Name = "${var.project_prefix}-${each.key}"
+  }
+}
+
+# Data source for existing VPC
+data "aws_vpc" "existing_vpc" {
+  tags = {
+    Name = "${var.project_prefix}-vpc"
+  }
+}
+
+# Data source for private subnets
+data "aws_subnet" "private_subnets" {
+  for_each = local.instance_configs
+
+  tags = {
+    Name = "${var.project_prefix}-${each.value.subnet_type}-${each.value.az}"
+  }
 }
