@@ -36,10 +36,6 @@ resource "aws_internet_gateway" "main" {
   }
 }
 
-data "aws_eip" "existing_eip" {
-  id = var.existing_eip_id
-}
-
 # Create NAT Gateway
 resource "aws_nat_gateway" "main" {
   allocation_id = data.aws_eip.existing_eip.id
@@ -50,27 +46,6 @@ resource "aws_nat_gateway" "main" {
   }
 
   depends_on = [aws_internet_gateway.main]
-}
-
-locals {
-  # Map gateway types to their resource IDs
-  gateway_ids = {
-    igw = aws_internet_gateway.main.id
-    nat = aws_nat_gateway.main.id
-  }
-
-  # Create a flattened map of routes for easier iteration
-  route_configurations = {
-    for pair in flatten([
-      for rt_key, rt in var.route_tables : [
-        for route in rt.routes : {
-          rt_key      = rt_key
-          cidr_block  = route.cidr_block
-          gateway_key = route.gateway_key
-        }
-      ]
-    ]) : "${pair.rt_key}-${pair.cidr_block}" => pair
-  }
 }
 
 # Create route tables
@@ -115,6 +90,31 @@ resource "aws_route" "routes" {
   ]
 }
 
+locals {
+  # Map gateway types to their resource IDs
+  gateway_ids = {
+    igw = aws_internet_gateway.main.id
+    nat = aws_nat_gateway.main.id
+  }
+
+  # Create a flattened map of routes for easier iteration
+  route_configurations = {
+    for pair in flatten([
+      for rt_key, rt in var.route_tables : [
+        for route in rt.routes : {
+          rt_key      = rt_key
+          cidr_block  = route.cidr_block
+          gateway_key = route.gateway_key
+        }
+      ]
+    ]) : "${pair.rt_key}-${pair.cidr_block}" => pair
+  }
+}
+
+data "aws_eip" "existing_eip" {
+  id = var.existing_eip_id
+}
+
 #########################################
 #                                       #
 #              Web Server               #
@@ -151,35 +151,6 @@ resource "aws_security_group" "ec2_sg" {
   }
 }
 
-# Local variables for rule configuration
-locals {
-  security_group_rules = {
-    pub_a = {
-      type        = "ingress"
-      from_port   = 80
-      to_port     = 80
-      protocol    = "tcp"
-      cidr_blocks = ["100.0.0.0/24"]
-      description = "${var.project_prefix}-pub-a-CIDR"
-    }
-    pub_c = {
-      type        = "ingress"
-      from_port   = 80
-      to_port     = 80
-      protocol    = "tcp"
-      cidr_blocks = ["100.0.10.0/24"]
-      description = "${var.project_prefix}-pub-c-CIDR"
-    }
-  }
-}
-
-# Data source to fetch existing security group
-data "aws_security_group" "existing" {
-  tags = {
-    Name = "${var.project_prefix}-ec2-sg"
-  }
-}
-
 # Security group rules using for_each
 resource "aws_security_group_rule" "inbound_rules" {
   for_each = local.security_group_rules
@@ -191,19 +162,6 @@ resource "aws_security_group_rule" "inbound_rules" {
   cidr_blocks       = each.value.cidr_blocks
   security_group_id = data.aws_security_group.existing.id
   description       = each.value.description
-}
-
-locals {
-  instance_configs = {
-    "app-1" = {
-      subnet_type = "prv-ap"
-      az         = "a"
-    }
-    "app-2" = {
-      subnet_type = "prv-ap"
-      az         = "c"
-    }
-  }
 }
 
 # EC2 Instances
@@ -230,6 +188,88 @@ resource "aws_instance" "app_instances" {
   }
 }
 
+# Target Group
+resource "aws_lb_target_group" "app_tg" {
+  name        = "${var.project_prefix}-tg"
+  port        = 80
+  protocol    = "HTTP"
+  target_type = "instance"
+  vpc_id      = aws_vpc.main.id
+
+  health_check {
+    enabled             = true
+    healthy_threshold   = 3
+    interval            = 30
+    matcher             = "200"
+    path                = "/"
+    port                = "traffic-port"
+    protocol            = "HTTP"
+    timeout             = 5
+    unhealthy_threshold = 2
+  }
+
+  tags = {
+    Name = "${var.project_prefix}-target-group"
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+# Target Group Attachments
+resource "aws_lb_target_group_attachment" "apps" {
+  for_each = data.aws_instance.apps
+
+  target_group_arn = aws_lb_target_group.app_tg.arn
+  target_id        = each.value.id
+  port             = 80
+
+  depends_on = [aws_lb_target_group.app_tg]
+}
+
+# Local variables for rule configuration
+locals {
+  security_group_rules = {
+    pub_a = {
+      type        = "ingress"
+      from_port   = 80
+      to_port     = 80
+      protocol    = "tcp"
+      cidr_blocks = ["100.0.0.0/24"]
+      description = "${var.project_prefix}-pub-a-CIDR"
+    }
+    pub_c = {
+      type        = "ingress"
+      from_port   = 80
+      to_port     = 80
+      protocol    = "tcp"
+      cidr_blocks = ["100.0.10.0/24"]
+      description = "${var.project_prefix}-pub-c-CIDR"
+    }
+  }
+}
+
+locals {
+  instance_configs = {
+    "app-1" = {
+      subnet_type = "prv-ap"
+      az         = "a"
+    }
+    "app-2" = {
+      subnet_type = "prv-ap"
+      az         = "c"
+    }
+  }
+}
+
+# Data source to fetch existing security group
+data "aws_security_group" "existing" {
+  tags = {
+    Name = "${var.project_prefix}-ec2-sg"
+  }
+}
+
 # Data source for existing VPC
 data "aws_vpc" "existing_vpc" {
   tags = {
@@ -245,3 +285,18 @@ data "aws_subnet" "private_subnets" {
     Name = "${var.project_prefix}-${each.value.subnet_type}-${each.value.az}"
   }
 }
+
+# Data source for existing EC2 instances
+data "aws_instance" "apps" {
+  for_each = local.instance_configs
+
+  filter {
+    name   = "tag:Name"
+    values = ["${var.project_prefix}-${each.key}"]
+  }
+
+  depends_on = [aws_instance.app_instances]
+}
+
+
+

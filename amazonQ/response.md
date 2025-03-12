@@ -1,141 +1,102 @@
 # Try 1
+![alt text](image.png)
+답변이 기존 코드를 참조하지 않는 듯하여 `@File > amazonQ/main.tf` 추가하고 질의 요청
+
 ### Prompt
-> Generate a Terraform script to modify the inbound rules  of a Security Group.
-> 
-> * Security Group Name: osj-terraform-with-{aq | cp}-ec2-sg
-> * Inbound Rules:
->   * Rule 1:
->    - Type: Custom TCP
->    - Protocol: TCP
->    - Port Range: 80
->    - Source: 100.0.0.0/24
->    - Description: osj-terraform-with-{aq | cp}-pub-a-CIDR
->  * Rule 2:
->    - Type: Custom TCP
->    - Protocol: TCP
->    - Port Range: 80
->    - Source: 100.0.10.0/24
->    - Description: osj-terraform-with-{aq | cp}-pub-c-CIDR
+> Write a Terraform script to create an AWS Target Group with the following configuration:
+> * Target type: instance
+> * Target group name: osj-terraform-with-{aq | cp}-target-group
+> * Protocol and port: HTTP:80
+> * VPC: osj-terraform-with-{aq | cp}-vpc
+> * Register the following EC2 instances as targets (assumed to be created beforehand and their instance IDs available):
+>   - osj-terraform-with-{aq | cp}-app-1
+>   - osj-terraform-with-{aq | cp}-app-2
 
 
 ### Response
-Here's a Terraform script to modify the inbound rules of an existing security group:
+I'll help you add the Target Group configuration to your existing `main.tf` file. Based on your current file structure and naming conventions, here's how to add the Target Group configuration:
+
 ```hcl
-# Variables
-variable "env" {
-  description = "Environment identifier (aq or cp)"
-  type        = string
+#########################################
+#                                       #
+#            Target Group               #
+#                                       #
+#########################################
+
+# Data source for existing EC2 instances
+data "aws_instance" "apps" {
+  for_each = local.instance_configs
+
+  filter {
+    name   = "tag:Name"
+    values = ["${var.project_prefix}-${each.key}"]
+  }
+
+  depends_on = [aws_instance.app_instances]
 }
 
-# Data source to fetch existing security group
-data "aws_security_group" "existing" {
+# Target Group
+resource "aws_lb_target_group" "app_tg" {
+  name        = "${var.project_prefix}-target-group"
+  port        = 80
+  protocol    = "HTTP"
+  target_type = "instance"
+  vpc_id      = aws_vpc.main.id
+
+  health_check {
+    enabled             = true
+    healthy_threshold   = 3
+    interval           = 30
+    matcher            = "200"
+    path               = "/"
+    port               = "traffic-port"
+    protocol           = "HTTP"
+    timeout            = 5
+    unhealthy_threshold = 2
+  }
+
   tags = {
-    Name = "osj-terraform-with-${var.env}-ec2-sg"
+    Name = "${var.project_prefix}-target-group"
+  }
+
+  lifecycle {
+    create_before_destroy = true
   }
 }
 
-# Security group rules
-resource "aws_security_group_rule" "inbound_pub_a" {
-  type              = "ingress"
-  from_port         = 80
-  to_port           = 80
-  protocol          = "tcp"
-  cidr_blocks       = ["100.0.0.0/24"]
-  security_group_id = data.aws_security_group.existing.id
-  description       = "osj-terraform-with-${var.env}-pub-a-CIDR"
-}
+# Target Group Attachments
+resource "aws_lb_target_group_attachment" "apps" {
+  for_each = data.aws_instance.apps
 
-resource "aws_security_group_rule" "inbound_pub_c" {
-  type              = "ingress"
-  from_port         = 80
-  to_port           = 80
-  protocol          = "tcp"
-  cidr_blocks       = ["100.0.10.0/24"]
-  security_group_id = data.aws_security_group.existing.id
-  description       = "osj-terraform-with-${var.env}-pub-c-CIDR"
+  target_group_arn = aws_lb_target_group.app_tg.arn
+  target_id        = each.value.id
+  port             = 80
+
+  depends_on = [aws_lb_target_group.app_tg]
 }
 ```
 
-Alternative approach using a more maintainable configuration with locals:
-```hcl
-# Variables
-variable "env" {
-  description = "Environment identifier (aq or cp)"
-  type        = string
-}
+This configuration:
+1. Uses your existing local.instance_configs for consistency with your EC2 instance configuration
+2. Creates a target group in the same VPC as your instances
+3. Uses your existing project prefix variable for naming
+4. Automatically registers both EC2 instances as targets
+5. Sets up standard HTTP health checks
+6. Uses proper dependencies to ensure resources are created in the correct order
 
-# Local variables for rule configuration
-locals {
-  security_group_rules = {
-    pub_a = {
-      type        = "ingress"
-      from_port   = 80
-      to_port     = 80
-      protocol    = "tcp"
-      cidr_blocks = ["100.0.0.0/24"]
-      description = "osj-terraform-with-${var.env}-pub-a-CIDR"
-    }
-    pub_c = {
-      type        = "ingress"
-      from_port   = 80
-      to_port     = 80
-      protocol    = "tcp"
-      cidr_blocks = ["100.0.10.0/24"]
-      description = "osj-terraform-with-${var.env}-pub-c-CIDR"
-    }
-  }
-}
+The script will:
+* Create a target group named like "osj-terraform-with-aq-target-group"
+* Configure HTTP health checks on port 80
+* Use the VPC you've already created
+* Register both EC2 instances (app-1 and app-2) as targets
+* Use consistent naming with your existing resources
 
-# Data source to fetch existing security group
-data "aws_security_group" "existing" {
-  tags = {
-    Name = "osj-terraform-with-${var.env}-ec2-sg"
-  }
-}
+Key features:
+1. Reuses existing variables and locals
+2. Maintains consistent naming convention
+3. Uses for_each for efficient resource creation
+4. Includes proper dependency management
+5. Follows your existing file structure
 
-# Security group rules using for_each
-resource "aws_security_group_rule" "inbound_rules" {
-  for_each = local.security_group_rules
-
-  type              = each.value.type
-  from_port         = each.value.from_port
-  to_port           = each.value.to_port
-  protocol          = each.value.protocol
-  cidr_blocks       = each.value.cidr_blocks
-  security_group_id = data.aws_security_group.existing.id
-  description       = each.value.description
-}
-```
-
-To apply this configuration:
-1. Save the code in a .tf file (e.g., security_group_rules.tf)
-2. Initialize Terraform:
-```hcl
-terraform init
-```
-
-3. Apply the configuration with your environment variable:
-```hcl
-terraform apply -var="env=aq"
-```
-
-Key features of this configuration:
-1. Uses a data source to fetch the existing security group
-2. Creates individual security group rules using aws_security_group_rule
-3. The second approach uses for_each to create rules from a map of configurations
-4. Makes the configuration reusable across different environments using the env variable
-5. Includes descriptions for better documentation of the rules
-
-Benefits of using the second approach with for_each:
-1. More maintainable - all rules are defined in one place
-2. Easier to add/remove rules - just modify the local variable
-3. Reduces code duplication
-4. Each rule is tracked individually in the Terraform state
-5. Makes it easier to make bulk changes to rule properties
-
-Remember that:
-* The security group must exist before applying these rules
-* Each rule must have a unique combination of type, protocol, and port range
-* You may need to remove any existing rules that conflict with these new ones
-* The security group ID will be automatically fetched based on the tag name
+The configuration integrates with your existing EC2 instances and VPC configuration, and uses the same variable structure you've already established in your `main.tf` file.
 
