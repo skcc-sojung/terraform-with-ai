@@ -151,6 +151,16 @@ resource "aws_security_group" "ec2_sg" {
   }
 }
 
+resource "aws_security_group" "alb_sg" {
+  name        = "${var.project_prefix}-alb-sg"
+  description = "security group for load balancer"
+  vpc_id      = aws_vpc.main.id
+
+  tags = {
+    Name = "${var.project_prefix}-alb-sg"
+  }
+}
+
 # Security group rules using for_each
 resource "aws_security_group_rule" "inbound_rules" {
   for_each = local.security_group_rules
@@ -162,6 +172,35 @@ resource "aws_security_group_rule" "inbound_rules" {
   cidr_blocks       = each.value.cidr_blocks
   security_group_id = data.aws_security_group.existing.id
   description       = each.value.description
+}
+
+resource "aws_security_group_rule" "all_outbound" {
+  type              = "egress"
+  from_port         = 0
+  to_port           = 0
+  protocol          = "-1"
+  cidr_blocks       = ["0.0.0.0/0"]
+  security_group_id = data.aws_security_group.existing.id
+}
+
+resource "aws_security_group_rule" "alb_http_inbound" {
+  type              = "ingress"
+  from_port         = 80
+  to_port           = 80
+  protocol          = "tcp"
+  cidr_blocks       = ["0.0.0.0/0"]
+  security_group_id = aws_security_group.alb_sg.id
+  description       = "Allow HTTP inbound traffic"
+}
+
+resource "aws_security_group_rule" "alb_all_outbound" {
+  type              = "egress"
+  from_port         = 0
+  to_port           = 0
+  protocol          = "-1"
+  cidr_blocks       = ["0.0.0.0/0"]
+  security_group_id = aws_security_group.alb_sg.id
+  description       = "Allow all outbound traffic"
 }
 
 # EC2 Instances
@@ -226,6 +265,40 @@ resource "aws_lb_target_group_attachment" "apps" {
   port             = 80
 
   depends_on = [aws_lb_target_group.app_tg]
+}
+
+# Application load balancer
+resource "aws_lb" "app_alb" {
+  name               = "${var.project_prefix}-alb"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.alb_sg.id]
+  subnets = [
+    aws_subnet.subnets["pub_a"].id,
+    aws_subnet.subnets["pub_c"].id
+  ]
+
+  enable_deletion_protection = false
+  ip_address_type          = "ipv4"
+
+  tags = {
+    Name = "${var.project_prefix}-alb"
+  }
+}
+
+resource "aws_lb_listener" "http" {
+  load_balancer_arn = aws_lb.app_alb.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.app_tg.arn
+  }
+
+  tags = {
+    Name = "${var.project_prefix}-http-listener"
+  }
 }
 
 # Local variables for rule configuration
@@ -295,7 +368,10 @@ data "aws_instance" "apps" {
     values = ["${var.project_prefix}-${each.key}"]
   }
 
-  depends_on = [aws_instance.app_instances]
+  filter {
+    name   = "instance-state-name"
+    values = ["running"]
+  }
 }
 
 
